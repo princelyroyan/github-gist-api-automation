@@ -48,6 +48,53 @@ function firstLine(message = ''): string {
   return message.split('\n')[0].replace(/\|/g, '\\|').slice(0, 140) || '—';
 }
 
+/** Escapes markdown table delimiters so a message containing `|` cannot break a row. */
+function cell(text: string): string {
+  return text.replace(/\|/g, '\\|');
+}
+
+const STATUS_ICON: Record<string, string> = {
+  passed: '✅',
+  failed: '❌',
+  broken: '💥',
+  skipped: '⏭️',
+};
+
+const AREAS: Array<[string, string]> = [
+  ['AUTH', 'Authentication and authorization'],
+  ['CRE', 'Create'],
+  ['RD', 'Read'],
+  ['UPD', 'Update'],
+  ['DEL', 'Delete'],
+  ['STR', 'Star'],
+  ['FRK', 'Fork'],
+  ['REV', 'Revisions'],
+  ['CMT', 'Comments'],
+  ['PAG', 'Pagination and filtering'],
+  ['SCH', 'Contract'],
+  ['NFR', 'Non-functional'],
+];
+
+/**
+ * Splits a test title into its catalogue id and its prose.
+ *
+ * Titles start with the id from docs/test-cases.md, which is what makes the CI
+ * output traceable back to the catalogue. A few tests deliberately cover several
+ * cases at once — `STR-01/02/03/06 walks the full star state machine` is one
+ * test for a four-state machine — so the id is kept verbatim rather than
+ * pretending it is a single case.
+ */
+function parseTitle(name: string): { id: string; title: string; area: string } {
+  const m = name.match(/^([A-Z]{2,4}-\d{2}(?:\/\d{2})*)\s+(.*)$/);
+  const id = m ? m[1] : '—';
+  const rest = m ? m[2] : name;
+  return {
+    id,
+    title: rest.replace(/\s*@\w+/g, '').trim(),
+    area: id.split('-')[0],
+  };
+}
+
 function main() {
   const results = readResults();
   const failed = results.filter((r) => r.status !== 'passed');
@@ -71,6 +118,42 @@ function main() {
       md.push(`| ${f.name.replace(/\|/g, '\\|')} | ${firstLine(f.statusDetails?.message)} |`);
     }
     md.push('');
+  }
+
+  // Every test, grouped by area to mirror docs/test-cases.md. Collapsed on
+  // purpose: 86 rows on a green run would bury the two that actually matter, and
+  // the Failures table above is the signal. This is the reference, one click away.
+  if (results.length) {
+    const parsed = results
+      .map((r) => ({ ...parseTitle(r.name), status: r.status, details: r.statusDetails?.message }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+
+    md.push(
+      '<details>',
+      `<summary><b>All test cases (${results.length})</b></summary>`,
+      '',
+    );
+
+    const known = new Set(AREAS.map(([prefix]) => prefix));
+    const groups: Array<[string, typeof parsed]> = AREAS.map(([prefix, label]) => [
+      label,
+      parsed.filter((t) => t.area === prefix),
+    ]);
+    const orphans = parsed.filter((t) => !known.has(t.area));
+    if (orphans.length) groups.push(['Other', orphans]);
+
+    for (const [label, tests] of groups) {
+      if (!tests.length) continue;
+      md.push(`#### ${label}`, '', '| ID | Test | Status | Error |', '|---|---|---|---|');
+      for (const t of tests) {
+        const icon = STATUS_ICON[t.status] ?? t.status;
+        const error = t.status === 'passed' ? '—' : firstLine(t.details);
+        md.push(`| \`${t.id}\` | ${cell(t.title)} | ${icon} | ${error} |`);
+      }
+      md.push('');
+    }
+
+    md.push('</details>', '');
   }
 
   const env = readEnvironment();
