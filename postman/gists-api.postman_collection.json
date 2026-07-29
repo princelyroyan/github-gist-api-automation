@@ -1,0 +1,317 @@
+{
+  "info": {
+    "_postman_id": "c0fecd00-f244-43c3-a4e7-5e27b51d3234",
+    "name": "Github Gist API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "790031"
+  },
+  "item": [
+    {
+      "name": "Create Gists",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();",
+              "pm.environment.set(\"gistId\", res.id);",
+              "pm.test(\"Status is 201 Created\", () => pm.response.to.have.status(201));"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"QA Exploration Gist\",\n  \"public\": false,\n  \"files\": {\n    \"notes.txt\": {\n      \"content\": \"Testing GitHub Gist API manually via Postman.\"\n    },\n    \"config.json\": {\n      \"content\": \"{\\\"env\\\": \\\"staging\\\", \\\"debug\\\": true}\"\n    }\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/gists",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "gists"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Gists",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status is 200 OK\", () => pm.response.to.have.status(200));",
+              "pm.test(\"Contains requested files\", () => {",
+              "    const res = pm.response.json();",
+              "    pm.expect(res.files[\"notes.txt\"]).to.exist;",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/gists/{{gistId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "gists",
+            "{{gistId}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Patch Gists",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Updated QA Exploration Gist\",\n  \"files\": {\n    \"notes.txt\": {\n      \"content\": \"Updated content via PATCH request.\"\n    },\n    \"config.json\": null\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/gists/{{gistId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "gists",
+            "{{gistId}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Put Gists(Star)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status is 204 No Content\", () => pm.response.to.have.status(204));"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Length",
+            "value": "0",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/gists/{{gistId}}/star",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "gists",
+            "{{gistId}}",
+            "star"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get(Star)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/gists/{{gistId}}/star",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "gists",
+            "{{gistId}}",
+            "star"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Post (Comment Gists)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const res = pm.response.json();",
+              "pm.environment.set(\"commentId\", res.id);",
+              "pm.test(\"Comment created\", () => pm.response.to.have.status(201));"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"body\": \"This is a manual test comment.\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/gists/{{gistId}}/comments",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "gists",
+            "{{gistId}}",
+            "comments"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Gists",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status is 204 No Content\", () => pm.response.to.have.status(204));"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/gists/{{gistId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "gists",
+            "{{gistId}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Check",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status is 404 Not Found\", () => pm.response.to.have.status(404));"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/gists/{{gistId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "gists",
+            "{{gistId}}"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{tokenA}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          "pm.request.headers.add({",
+          "    key: 'Accept',",
+          "    value: 'application/vnd.github+json'",
+          "});",
+          "",
+          "pm.request.headers.add({",
+          "    key: 'X-GitHub-Api-Version',",
+          "    value: '2026-03-10'",
+          "});"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ]
+}

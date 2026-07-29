@@ -1,0 +1,37 @@
+{
+  "name": "github-gist-api-automation",
+  "version": "1.0.0",
+  "description": "API test automation suite for the GitHub Gists REST API (Playwright + TypeScript)",
+  "private": true,
+  "scripts": {
+    "test": "npm run clean:allure --silent && tsx scripts/rate-limit-report.ts --before && playwright test",
+    "test:smoke": "npm run clean:allure --silent && tsx scripts/rate-limit-report.ts --before && playwright test --grep @smoke",
+    "test:regression": "npm run clean:allure --silent && tsx scripts/rate-limit-report.ts --before && playwright test --grep \"@P0|@P1\"",
+    "test:contract": "npm run clean:allure --silent && tsx scripts/rate-limit-report.ts --before && playwright test --grep @contract",
+    "test:security": "npm run clean:allure --silent && tsx scripts/rate-limit-report.ts --before && playwright test --grep @security",
+    "typecheck": "tsc --noEmit",
+    "cleanup": "tsx scripts/cleanup.ts",
+    "report": "playwright show-report",
+    "allure:generate": "tsx scripts/rate-limit-report.ts && node -e \"require('fs').rmSync('allure-report',{recursive:true,force:true})\" && allure generate allure-results -o allure-report --name \"GitHub Gists API\"",
+    "allure:open": "allure open allure-report",
+    "allure:serve": "tsx scripts/rate-limit-report.ts && allure serve allure-results --name \"GitHub Gists API\"",
+    "test:allure": "npm test; npm run allure:generate",
+    "quota": "tsx scripts/rate-limit-report.ts",
+    "clean:allure": "node -e \"['allure-results','allure-report'].forEach(d=>require('fs').rmSync(d,{recursive:true,force:true}))\"",
+    "allure:single": "tsx scripts/rate-limit-report.ts && node -e \"require('fs').rmSync('allure-report',{recursive:true,force:true})\" && allure awesome allure-results --single-file -o allure-report --name \"GitHub Gists API\"",
+    "clean": "node -e \"['allure-results','allure-report','playwright-report','test-results','results.xml','.rate-limit-snapshot.json'].forEach(p=>require('fs').rmSync(p,{recursive:true,force:true}))\"",
+    "allure:ci": "tsx scripts/rate-limit-report.ts && node -e \"require('fs').rmSync('allure-report',{recursive:true,force:true})\" && allure awesome allure-results --history-path allure-history.jsonl -o allure-report --name \"GitHub Gists API\""
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^20.14.0",
+    "allure": "^3.14.3",
+    "allure-playwright": "^3.10.2",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.3"
+  }
+}
