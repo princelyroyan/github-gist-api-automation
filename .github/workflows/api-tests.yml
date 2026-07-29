@@ -94,6 +94,7 @@ jobs:
           key: allure-history-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v7
+        id: allure_artifact
         if: always()
         with:
           name: allure-report
@@ -101,6 +102,7 @@ jobs:
           retention-days: 14
 
       - uses: actions/upload-artifact@v7
+        id: playwright_artifact
         if: always()
         with:
           name: playwright-report
@@ -108,3 +110,14 @@ jobs:
             playwright-report/
             results.xml
           retention-days: 14
+
+      # Last, because it links to the artifacts uploaded above. An artifact URL
+      # only downloads a zip, so the headline numbers are rendered inline here —
+      # otherwise a red run tells you nothing until you unpack something.
+      - name: Write run summary
+        if: always()
+        env:
+          SUITE: ${{ github.event_name == 'pull_request' && 'smoke' || 'full regression' }}
+          ALLURE_ARTIFACT_URL: ${{ steps.allure_artifact.outputs.artifact-url }}
+          PLAYWRIGHT_ARTIFACT_URL: ${{ steps.playwright_artifact.outputs.artifact-url }}
+        run: npx tsx scripts/job-summary.ts
