@@ -81,10 +81,45 @@ line, and it is the part worth defending.
 | Rate limiting | Low | Low | **P3** | Expensive to test properly, changes rarely |
 | Truncation (>1 MB, >300 files) | Low | Low | **P3** | Edge case; documented, not automated |
 
-**The automation line is P0 + P1.** P2 is automated where it was nearly free
-(star idempotency, comments, some pagination). P3 is documented in
-[`test-cases.md`](test-cases.md) with a reason, because identifying a case and choosing
-not to automate it is a different skill from writing the test.
+**The automation line is P0 + P1.** P3 is documented in
+[`test-cases.md`](test-cases.md) with a reason, because identifying a case and choosing not
+to automate it is a different skill from writing the test.
+
+### Where the line actually landed
+
+Stating the intent is easy; here is what was built, which is the more useful thing to
+defend:
+
+| Priority | Automated | Declined | % |
+|---|---|---|---|
+| P0 | 26 | 0 | 100% |
+| P1 | 44 | 2 | 96% |
+| **P2** | **22** | **16** | **58%** |
+| P3 | 0 | 5 | 0% |
+
+**P2 went further than "P0 + P1" implies, and that was a deliberate choice rather than
+scope creep.** Once the fixtures, builders, and schemas existed, the marginal cost of a P2
+test was a few lines, so the question stopped being *"is this critical?"* and became *"does
+this earn its few seconds of runtime?"* Three reasons a P2 case was taken:
+
+- **It completes a technique.** Star is only worth its place because the *whole* state
+  machine is covered — asserting two of four transitions would demonstrate nothing about
+  state-transition design.
+- **It covers something structurally unique.** Comments is the only child resource in the
+  feature, so it is the only place cascade behaviour and a cross-resource counter can be
+  exercised at all.
+- **It was already half-written.** Pagination boundaries share one endpoint and one
+  assertion helper.
+
+The 16 declined P2s are the counter-evidence that a line exists: each names its reason in
+the catalogue, and they were declined on cost (a >1 MB upload on every run), on redundancy
+(a second type-coercion case once the first pins the behaviour), or on impossibility (JSON
+object keys cannot duplicate, so "duplicate filenames" is not expressible).
+
+**If asked to defend a single number, the honest one is 24** — the `@smoke` subset, which
+runs in about ten seconds and is what actually gates a change. That is the "critical
+functionality" line. The 86-test suite is what runs nightly, when wall-clock is free and
+breadth is worth more than speed.
 
 ## 5. Test design techniques
 
