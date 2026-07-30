@@ -1,8 +1,13 @@
 # Test case catalogue
 
-**~95 cases identified. 52 automated.** The gap is deliberate: identifying a case and
+**115 cases identified. 92 automated.** The gap is deliberate: identifying a case and
 choosing not to automate it are separate skills, and the reasoning behind the line is in
 [`test-strategy.md §4`](test-strategy.md#4-risk-analysis).
+
+The suite has **86 `test()` functions**, which is fewer than 92 because five tests each
+cover a group of related cases — `STR-01/02/03/06` walks one state machine in a single
+test — and `SCH-04` is asserted inside the comments tests rather than having one of its
+own. Every automated case is traceable: each test title begins with its id here.
 
 Legend — **P0** automate first (smoke gate), **P1** automate (regression), **P2**
 automate if cheap, **P3** documented, not automated.
@@ -363,7 +368,7 @@ full rationale in [`test-strategy.md §5`](test-strategy.md#the-four-personas).
 | ID | Scenario | Pri | Status |
 |---|---|---|---|
 | NFR-01 | Rate-limit headers on every response | P1 | ✅ (in `gists.read.spec.ts`) |
-| NFR-02 | `x-ratelimit-remaining` decrements | P2 | ✅ (via RD-10, which asserts it does *not* on a 304) |
+| NFR-02 | `x-ratelimit-remaining` decrements | P2 | ⬜ Cannot be isolated — four workers share one token bucket, so the counter moves for unrelated reasons. Verified serially instead (delta 0 on a 304) and recorded in `findings.md` #14 |
 | NFR-03 | Response time SLA | P2 | ⬜ Needs an agreed SLA with the service owner first |
 | NFR-04 | Security headers | P3 | ⬜ Documented |
 | NFR-05 | XSS payload stored raw, escaped on render | P2 | ⬜ The render half is a UI concern |
