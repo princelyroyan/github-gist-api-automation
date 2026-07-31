@@ -182,12 +182,23 @@ Recorded as an accepted coverage gap in
 
 ## 12. API version 2026-03-10 removed `history` and `forks` — *breaking change* ✅
 
-The headline technical finding. Both versions are currently supported:
+The headline technical finding. Both versions are currently supported.
 
-| Field on the gist object | `2022-11-28` | `2026-03-10` |
+**The change affects the *detail* response only** — `GET /gists/{id}` and the body returned
+by `POST /gists`. List endpoints are unaffected because they never carried these fields to
+begin with:
+
+| Response | `2022-11-28` | `2026-03-10` |
 |---|---|---|
-| `history` | present | **removed** |
-| `forks` | present | **removed** |
+| **Detail** — `GET /gists/{id}` | `history` ✅ `forks` ✅ | **both removed** |
+| **List** — `GET /gists`, `/gists/public`, `/users/{u}/gists` | `history` ❌ `forks` ❌ | `history` ❌ `forks` ❌ |
+
+That distinction is worth holding separately from the version change, because they are two
+independent axes and easy to conflate. Checking a *list* response for `history` shows no
+difference between versions and proves nothing — there was never anything there to remove.
+The lightweight-list / full-detail split is a long-standing design choice (it also omits
+file `content`, pinned by **RD-09**); the version change is a genuine removal from the
+detail shape.
 
 A client reading `gist.history[0].version` to find a revision SHA gets `undefined` the
 moment it adopts the newer version. No error, no deprecation notice in the response, no
