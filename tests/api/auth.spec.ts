@@ -11,7 +11,8 @@ import { eventually, expectApiError, expectStatus } from '../../src/utils/assert
 test.describe('Authentication and authorization', () => {
   test('AUTH-01 a valid token can list its own gists @smoke @P0', async ({ ownerClient }) => {
     const response = await ownerClient.list();
-
+    // log the response
+    console.log("The response is", await response.json());
     await expectStatus(response, 200);
     expect(Array.isArray(await response.json())).toBe(true);
   });
