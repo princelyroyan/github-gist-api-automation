@@ -1,6 +1,7 @@
 import { expect, type APIResponse } from '@playwright/test';
 import type { z } from 'zod';
 import { errorSchema } from '../models/gist.schemas';
+import { formatResetTime } from './time';
 
 /**
  * Validates a response body against a Zod schema and returns the parsed value,
@@ -13,6 +14,13 @@ export async function expectSchema<T extends z.ZodTypeAny>(
   response: APIResponse,
   schema: T,
 ): Promise<z.infer<T>> {
+  // A throttled response is still valid JSON — just the wrong shape — so without
+  // this the failure reads as a contract break rather than an exhausted budget.
+  // RD-07 reported "Expected array, received object" in CI when the real cause was
+  // the anonymous 60/hr per-IP limit. Specs that validate a schema without first
+  // asserting a status would otherwise never reach this guard at all.
+  await assertNotRateLimited(response);
+
   const body = await response.json();
   const result = schema.safeParse(body);
 
@@ -20,7 +28,9 @@ export async function expectSchema<T extends z.ZodTypeAny>(
     result.success,
     result.success
       ? ''
-      : `Schema validation failed:\n${JSON.stringify(result.error.issues, null, 2)}\n\nBody:\n${JSON.stringify(body, null, 2)}`,
+      : `Schema validation failed for ${response.url()} ` +
+        `(HTTP ${response.status()}):\n${JSON.stringify(result.error.issues, null, 2)}` +
+        `\n\nBody:\n${JSON.stringify(body, null, 2)}`,
   ).toBe(true);
 
   return (result as z.SafeParseSuccess<z.infer<T>>).data;
@@ -83,7 +93,7 @@ export async function assertNotRateLimited(response: APIResponse): Promise<void>
 
   if (headers['x-ratelimit-remaining'] !== '0') return;
 
-  const resetAt = new Date(Number(headers['x-ratelimit-reset']) * 1000).toISOString();
+  const resetAt = formatResetTime(Number(headers['x-ratelimit-reset']));
   const limit = headers['x-ratelimit-limit'];
   const persona = limit === '60' ? 'ANONYMOUS (60/hr per IP)' : `authenticated (${limit}/hr)`;
 

@@ -8,8 +8,8 @@ rather than as a stale document.
 > green against the live API. Anything still marked ⏳ is an expectation from the docs and
 > from manual exploration that the suite has not yet confirmed.
 >
-> Findings **#12–#21 were discovered by running the suite**, not by reading the docs.
-> Ten of them are cases where the documentation or the obvious assumption was wrong,
+> Findings **#12–#22 were discovered by running the suite**, not by reading the docs.
+> Eleven of them are cases where the documentation or the obvious assumption was wrong,
 > which is the strongest argument I can make for why the automated layer earns its keep:
 > every one of them would have shipped as a silently wrong test.
 
@@ -316,6 +316,11 @@ The lesson generalises: on a shared, rate-limited, third-party API, *which perso
 uses is a resource decision as much as a correctness one*. On a fresh IP, budget roughly
 six full runs per hour.
 
+> **Corrected by #22.** "On a fresh IP" is doing more work in that sentence than it looks.
+> The budget is keyed to the IP address, so on a hosted CI runner it is shared with every
+> other job on that machine and the suite's own consumption predicts nothing. A nightly run
+> started with 4 of 60 available and lost four tests to a budget it had never spent.
+
 ## 19. A 201 does not mean the gist is usable yet — *design observation* ✅
 
 **Corrected.** This finding originally claimed the owner sees a gist immediately and only
@@ -431,8 +436,9 @@ actually measures rather than implying a guarantee it cannot make.
   of 47 identical "fixture setup failed" errors that read like a broken framework.
 - The gist factory routes its failures through the same guard, so throttled setup is
   named correctly at the point it happens.
-- Leave a few minutes between full runs locally. In CI this is a non-issue — PR, push, and
-  nightly runs are naturally spaced.
+- Leave a few minutes between full runs locally. In CI the *write* throttle is a non-issue
+  — PR, push and nightly runs are naturally spaced. The **anonymous read** budget is not,
+  because it is keyed to the runner's shared IP rather than to us; see #22.
 
 **The honest conclusion about stability:** four consecutive runs could not establish a
 flake rate, because the environment stops cooperating after the first. Demonstrating the
@@ -469,6 +475,83 @@ treating an intermittent failure as a product defect or a race, check whether th
 assertion is even entitled to hold. A flaky test is sometimes a correct test meeting an
 unreliable system, and sometimes — as here — an incorrect test meeting a system behaving
 exactly as specified.
+
+---
+
+## 22. On CI the anonymous budget is not ours to spend — *our problem, not GitHub's* ✅
+
+**This corrects #18.** That finding treated the 60/hr anonymous budget as a resource the
+suite allocates for itself: measure what a run costs (8), divide, get runs per hour. The
+arithmetic only holds where the IP belongs to us. It does not on a hosted CI runner, and
+#20 states outright that "in CI this is a non-issue" — which is exactly backwards. CI is
+the one place the anonymous budget is shared with strangers.
+
+The nightly run of 2026-08-03 failed. Its own pre-flight snapshot, printed before a single
+test executed:
+
+```
+account A  4634/5000 available
+account B  4985/5000 available
+anonymous     4/60 available     ← already spent, by someone else
+```
+
+Four tests failed, and they were precisely the four that use `anonClient` after the last
+four requests were gone:
+
+| Test | Persona | Outcome |
+|---|---|---|
+| AUTH-08 | anonymous | ✓ — spent what remained |
+| DEL-02 | anonymous | ✘ |
+| FRK-05 | anonymous | ✘ |
+| RD-05 | anonymous | ✘ |
+| RD-07 | anonymous | ✘ |
+
+The body GitHub returned names the cause without ambiguity:
+
+```
+API rate limit exceeded for 4.155.149.97.
+```
+
+That is an Azure address belonging to a GitHub Actions runner, shared with every other job
+scheduled onto it. Nothing the suite did consumed the budget; it arrived depleted. Both
+retries failed too, because the budget resets on the hour and a retry seconds later cannot
+help.
+
+**The secondary defect this exposed — the failure was unreadable.** `assertNotRateLimited`
+exists so a throttled run is never mistaken for a broken suite, but it was only wired into
+`expectStatus`. RD-07 validates a schema without first asserting a status, so a throttled
+response — still perfectly valid JSON, just an error object rather than an array — was
+reported as:
+
+```
+Schema validation failed: Expected array, received object
+```
+
+A contract failure, for a budget problem. The guard is now the first thing `expectSchema`
+does, and its message carries the URL and status, so any path into a rate limit says so.
+
+**What changed:**
+
+- The anonymous personas gate on the budget. A worker-scoped fixture reads
+  `GET /rate_limit` once — free, it counts against nothing — and below
+  `MIN_ANON_BUDGET` (10, covering the ~8 a run needs plus margin) `anonClient` and
+  `anonComments` **skip** rather than fail. The gate fails open: if the check itself
+  cannot be read, the tests run.
+- The skips are loud by design. `scripts/job-summary.ts` lists every skipped test with its
+  reason in an uncollapsed section on the run page, and no longer counts skips as
+  failures. Silently dropping `@P0 @security` coverage would be a worse outcome than the
+  red build this replaces.
+
+**The judgement call, stated plainly:** this trades a false red for missing coverage, and
+missing coverage is only acceptable because it is visible. A build that goes red because a
+neighbouring job used the machine's quota teaches people to ignore red builds, which costs
+more than the four tests. If those tests need to run on every CI execution regardless, the
+answer is not to tune the threshold — it is a runner with an IP of our own.
+
+**The generalisable point:** a budget keyed to something you do not control is not a budget
+you can plan against. #18 measured the suite's own consumption and reasoned from it, which
+is right for a token and wrong for an IP. Worth asking of any shared quota: *whose is it,
+and who else can spend it?*
 
 ---
 

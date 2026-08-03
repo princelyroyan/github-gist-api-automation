@@ -233,10 +233,17 @@ Stated rather than hidden, with the reason and the mitigation:
 |---|---|---|
 | Pull request | `@smoke` (P0 only) | < 2 min |
 | Push to `main` | Full suite | < 5 min |
-| Nightly 03:00 UTC | Full suite + contract drift | — |
+| Nightly 01:00 UTC (03:00 Berlin) | Full suite + contract drift | — |
 | `workflow_dispatch` | Full suite | — |
 
 Cleanup runs unconditionally after the suite, including on failure.
+
+The nightly is expressed in UTC because Actions cron has no timezone, and it is a lower
+bound rather than a start time — observed delays on this repo have run to 65–77 minutes.
+Neither matters for a nightly, but both matter if anyone reads a run's timestamp as
+evidence of when the schedule fired. The UTC value is chosen so the run lands at 03:00
+Berlin in summer; it drifts to 02:00 Berlin under CET, which is accepted rather than
+chased with a twice-yearly edit.
 
 ## 9. Entry and exit criteria
 

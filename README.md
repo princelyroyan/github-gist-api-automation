@@ -129,9 +129,10 @@ sends no `retry-after`, so nothing tells you it is coming or when it lifts:
 
 Four back-to-back runs triggered it: run 1 passed, runs 2–4 lost ~55 tests each to it
 while account A still had 4643 of 5000 requests available. **Leave a few minutes between
-full runs locally.** In CI it is a non-issue — PR, push, and nightly runs are naturally
-spaced. `assertNotRateLimited` names it explicitly so a throttled run cannot be mistaken
-for a broken suite. Full write-up in [`docs/findings.md`](docs/findings.md) #20.
+full runs locally.** In CI this particular limit is a non-issue — PR, push, and nightly
+runs are naturally spaced. `assertNotRateLimited` names it explicitly so a throttled run
+cannot be mistaken for a broken suite. Full write-up in
+[`docs/findings.md`](docs/findings.md) #20.
 
 The anonymous limit binds first, so that persona is reserved for the eight tests where
 being unauthenticated *is* the thing under test. Everything else — pagination, feed
@@ -140,8 +141,18 @@ token. An earlier version spent ~20 anonymous requests per run and capped the su
 roughly three runs an hour, with the overflow showing up as 403s on unrelated tests that
 looked like product defects.
 
+**On CI the anonymous budget is not ours.** It is keyed to the runner's IP address, which
+is shared with every other job on that machine, so the "used per run" figure above predicts
+nothing there — a nightly run began with 4 of 60 available and lost four tests to a budget
+it had never spent. The anonymous personas therefore check the budget before running (via
+`GET /rate_limit`, which counts against nothing) and **skip** rather than fail when it
+cannot cover them. Skips are listed with their reason on the run page, because coverage
+that quietly disappears is worse than a red build. See
+[`docs/findings.md`](docs/findings.md) #22.
+
 The generalisable point: on a shared, rate-limited, third-party API, *which persona a test
-uses is a resource decision as much as a correctness one.*
+uses is a resource decision as much as a correctness one* — and a budget keyed to something
+you do not control is not a budget you can plan against.
 
 Other measures:
 
@@ -150,7 +161,9 @@ Other measures:
 - Retries only in CI, and only once — a 4xx is never retried.
 - Rate-limit headers are asserted (NFR-01) rather than deliberately exhausted.
 - `assertNotRateLimited` turns an exhausted budget into one clear message naming the
-  persona and reset time, instead of a scatter of unrelated assertion failures.
+  persona and reset time, instead of a scatter of unrelated assertion failures. It runs
+  ahead of both `expectStatus` and `expectSchema`, so a throttled response cannot surface
+  as a contract failure.
 
 `npm run quota` prints the current budget for all three personas. `LOG_RATE_LIMIT=1 npm test`
 logs the remaining budget after every individual call.
@@ -210,12 +223,18 @@ account_a    217 used, 4582 of 5000 left
 account_b    13 used, 4917 of 5000 left
 anonymous    8 used, 7 of 60 left
 runs_left    ~0 more this hour (anonymous-limited)
-resets_at    2026-07-29T11:10:34.000Z (anonymous budget)
+resets_at    2026-07-29 11:10:34 UTC (13:10 Europe/Berlin) (anonymous budget)
 ```
 
 Keys are kept short on purpose — Allure's Environment panel truncates the key column, so
 `account_a_requests_used_this_run` renders as `account_a_req…` and tells the reader
 nothing. The detail belongs in the value.
+
+Every time the suite prints is UTC and says so, with the local equivalent alongside — a
+budget that "resets at 11:10Z" is arithmetic, and arithmetic at the moment a build goes red
+is how people misread it. The local zone comes from the machine, or from `REPORT_TIMEZONE`
+(an IANA name such as `Europe/Berlin`). On a CI runner the zone *is* UTC, so the
+parenthetical is dropped rather than printed twice.
 
 `GET /rate_limit` doesn't count against either budget, so measuring is free. If a
 rate-limit window rolls over mid-run the difference would be meaningless, so it reports
@@ -236,8 +255,14 @@ you want Allure results.
 ## CI
 
 `.github/workflows/api-tests.yml` runs `@smoke` on pull requests, the full suite on
-push to `main` and nightly at 03:00 UTC, and cleanup unconditionally afterwards.
+push to `main` and nightly at 01:00 UTC, and cleanup unconditionally afterwards.
 Tokens come from repository secrets `GIST_TOKEN_A` / `GIST_TOKEN_B`.
+
+That nightly targets **03:00 Europe/Berlin**. Actions cron is always UTC — there is no
+timezone setting — so a fixed schedule moves by an hour locally across a DST change:
+01:00 UTC is 03:00 Berlin under CEST and 02:00 under CET. It is also a *lower bound*, not
+an appointment. Scheduled runs queue, and the nightlies previously set to 03:00 UTC began
+at 04:05, 04:08 and 04:17 UTC — so expect a start nearer 04:00 Berlin than 03:00.
 
 ## Documents
 

@@ -41,4 +41,11 @@ export const env = {
   usernameOther: optional('GIST_USERNAME_B', 'GITHUB_USERNAME_B'),
 
   logRateLimit: optional('LOG_RATE_LIMIT') === '1',
+
+  /**
+   * IANA zone for the local time printed beside every UTC timestamp. Defaults to
+   * the machine's own zone — which on a CI runner is UTC, and `formatInstant`
+   * then prints the UTC time alone rather than twice.
+   */
+  reportTimeZone: optional('REPORT_TIMEZONE'),
 } as const;

@@ -97,8 +97,13 @@ function parseTitle(name: string): { id: string; title: string; area: string } {
 
 function main() {
   const results = readResults();
-  const failed = results.filter((r) => r.status !== 'passed');
-  const passed = results.length - failed.length;
+  // Skipped is its own outcome, not a failure. The anonymous personas skip when
+  // the shared-runner IP budget cannot cover them (docs/findings.md #22), and
+  // folding those into the failure count would make a budget problem read as a
+  // broken suite — the exact confusion the rest of the harness works to avoid.
+  const skipped = results.filter((r) => r.status === 'skipped');
+  const failed = results.filter((r) => r.status !== 'passed' && r.status !== 'skipped');
+  const passed = results.length - failed.length - skipped.length;
   const ok = failed.length === 0 && results.length > 0;
 
   const md: string[] = [];
@@ -106,11 +111,27 @@ function main() {
   md.push(
     results.length === 0
       ? '## ⚠️ API tests — no results found'
-      : `## ${ok ? '✅' : '❌'} API tests — ${passed} passed, ${failed.length} failed`,
+      : `## ${ok ? '✅' : '❌'} API tests — ${passed} passed, ${failed.length} failed` +
+        (skipped.length ? `, ${skipped.length} skipped` : ''),
     '',
     `Suite: **${process.env.SUITE ?? 'full'}** · Duration: **${duration()}** · Tests: **${results.length}**`,
     '',
   );
+
+  // Never collapsed. A skipped test is coverage that did not run, and the whole
+  // point of skipping rather than failing is lost if nobody sees it happen.
+  if (skipped.length) {
+    md.push(
+      `### ⏭️ Skipped — ${skipped.length} test${skipped.length === 1 ? '' : 's'} did not run`,
+      '',
+      '| Test | Why |',
+      '|---|---|',
+    );
+    for (const s of skipped.sort((a, b) => a.name.localeCompare(b.name))) {
+      md.push(`| ${cell(s.name)} | ${firstLine(s.statusDetails?.message)} |`);
+    }
+    md.push('');
+  }
 
   if (failed.length) {
     md.push('### Failures', '', '| Test | Reason |', '|---|---|');

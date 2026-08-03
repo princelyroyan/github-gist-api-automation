@@ -9,6 +9,12 @@ export const QA_PREFIX = 'qa-auto';
 /**
  * One id per process. Workers get distinct ids, which makes it possible to trace
  * an orphaned gist back to the run and worker that leaked it.
+ *
+ * The date is the **UTC** date, deliberately: it has to match what `created_at`
+ * says when someone greps a leaked gist, and CI and a local machine must produce
+ * comparable names. The cost is that a run started late at night west of UTC — or
+ * early morning east of it — is stamped with the neighbouring day. That is the
+ * right trade, but it surprises people, hence this note.
  */
 export const runId = `${new Date().toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}`;
 

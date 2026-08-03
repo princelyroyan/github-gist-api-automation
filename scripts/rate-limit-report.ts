@@ -13,6 +13,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { env } from '../src/config/env';
+import { formatResetTime } from '../src/utils/time';
 
 const RESULTS_DIR = 'allure-results';
 const SNAPSHOT = '.rate-limit-snapshot.json';
@@ -57,6 +58,11 @@ async function main() {
     for (const { key, label } of PERSONAS) {
       console.log(`  ${label.padEnd(10)} ${now[key].remaining}/${now[key].limit} available`);
     }
+    // The reset time belongs in the *before* snapshot, not only the after one.
+    // The anonymous budget is keyed to this machine's IP and on CI arrives
+    // partly spent by other jobs (findings #22) — when a run starts low, this
+    // line is what says how long that will last, at the moment it still matters.
+    console.log(`  anonymous budget resets at ${formatResetTime(now.anonymous.reset)}`);
     return;
   }
 
@@ -110,7 +116,7 @@ async function main() {
     );
   }
 
-  lines.push(`resets_at=${new Date(anon.reset * 1000).toISOString()} (anonymous budget)`);
+  lines.push(`resets_at=${formatResetTime(anon.reset)} (anonymous budget)`);
 
   // Rewrite rather than blindly append: running this twice against one test run
   // would otherwise leave duplicate keys in the Environment panel.

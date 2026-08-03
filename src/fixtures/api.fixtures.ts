@@ -1,4 +1,10 @@
-import { test as base, request, type APIRequestContext, type APIResponse } from '@playwright/test';
+import {
+  test as base,
+  request,
+  type APIRequestContext,
+  type APIResponse,
+  type TestInfo,
+} from '@playwright/test';
 import { GistsClient } from '../clients/gists.client';
 import { CommentsClient } from '../clients/comments.client';
 import { env } from '../config/env';
@@ -6,6 +12,7 @@ import { GistBuilder } from '../builders/gist.builder';
 import type { CreateGistPayload } from '../models/gist.types';
 import type { Gist } from '../models/gist.schemas';
 import { assertNotRateLimited, eventually } from '../utils/assertions';
+import { formatResetTime } from '../utils/time';
 
 /**
  * Personas are equivalence partitions over authorization, so they are modelled as
@@ -27,9 +34,13 @@ export type GistFactory = {
   track(gistId: string, client?: GistsClient): void;
 };
 
+/** What `GET /rate_limit` reports for the anonymous caller, or null if unreadable. */
+type AnonBudget = { remaining: number; limit: number; resetAt: string } | null;
+
 type WorkerFixtures = {
   ownerLogin: string;
   otherLogin: string;
+  anonBudget: AnonBudget;
 };
 
 type TestFixtures = {
@@ -87,6 +98,55 @@ async function resolveLogin(token: string, configured: string | undefined): Prom
   } finally {
     await ctx.dispose();
   }
+}
+
+/**
+ * The anonymous budget is 60/hr keyed to the **IP address**, not to a token — so
+ * unlike the two token budgets it is not ours alone. On a shared CI runner a
+ * neighbouring job spends it: the nightly run on 2026-08-03 started with 4 of 60
+ * left and four anonymous tests failed on a budget this suite had never touched.
+ *
+ * Below this threshold the anonymous personas skip instead of failing. A budget
+ * problem is not a product defect, and a build going red because of another job on
+ * the same runner teaches people to ignore red builds. The skips are deliberately
+ * loud — scripts/job-summary.ts lists each one with its reason on the run page —
+ * because a silently skipped @P0 security test is the worse failure mode.
+ *
+ * 10 covers the ~8 anonymous requests a full run makes, with a little margin.
+ * See docs/findings.md #22.
+ */
+const MIN_ANON_BUDGET = 10;
+
+/**
+ * Read once per worker. `GET /rate_limit` does not itself count against any
+ * budget, so the gate is free.
+ *
+ * Returns null on any failure and the gate then opens: a check that cannot be
+ * read must never be the reason a suite stops testing.
+ */
+async function readAnonBudget(): Promise<AnonBudget> {
+  const ctx = await newContext();
+  try {
+    const response = await ctx.get('/rate_limit');
+    if (!response.ok()) return null;
+    const { limit, remaining, reset } = (await response.json()).resources.core;
+    return { remaining, limit, resetAt: formatResetTime(reset) };
+  } catch {
+    return null;
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+function guardAnonBudget(budget: AnonBudget, testInfo: TestInfo): void {
+  if (!budget || budget.remaining >= MIN_ANON_BUDGET) return;
+
+  testInfo.skip(
+    true,
+    `Anonymous API budget too low: ${budget.remaining} of ${budget.limit} left, resets at ` +
+      `${budget.resetAt}. That 60/hr limit is keyed to this machine's IP address, which is ` +
+      'shared on CI runners — a budget problem, not a product defect. See docs/findings.md #22.',
+  );
 }
 
 function makeFactory(client: GistsClient): { factory: GistFactory; cleanup: () => Promise<void> } {
@@ -170,6 +230,14 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     { scope: 'worker' },
   ],
 
+  // Resolved lazily, so a run using no anonymous persona never makes this call.
+  anonBudget: [
+    async ({}, use) => {
+      await use(await readAnonBudget());
+    },
+    { scope: 'worker' },
+  ],
+
   // --- Personas ------------------------------------------------------------
 
   ownerClient: async ({}, use) => {
@@ -180,7 +248,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await withClient(env.tokenOther, (ctx) => new GistsClient(ctx), use);
   },
 
-  anonClient: async ({}, use) => {
+  anonClient: async ({ anonBudget }, use, testInfo) => {
+    guardAnonBudget(anonBudget, testInfo);
     await withClient(undefined, (ctx) => new GistsClient(ctx), use);
   },
 
@@ -196,7 +265,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await withClient(env.tokenOther, (ctx) => new CommentsClient(ctx), use);
   },
 
-  anonComments: async ({}, use) => {
+  anonComments: async ({ anonBudget }, use, testInfo) => {
+    guardAnonBudget(anonBudget, testInfo);
     await withClient(undefined, (ctx) => new CommentsClient(ctx), use);
   },
 

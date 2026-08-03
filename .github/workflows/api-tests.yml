@@ -5,8 +5,23 @@ on:
   push:
     branches: [main]
   schedule:
-    # Nightly full regression at 03:00 UTC.
-    - cron: '0 3 * * *'
+    # Nightly full regression, targeting 03:00 Europe/Berlin — the team's local
+    # small hours, not the CI's.
+    #
+    # Actions cron is ALWAYS UTC; there is no timezone setting. 01:00 UTC is
+    # therefore 03:00 in Berlin during CEST and 02:00 during CET. A single cron
+    # cannot hold a fixed local hour across a DST change, so the choice is which
+    # half of the year to be right in — summer, here. Changing this to follow DST
+    # means editing the number twice a year, which is worse than an hour of drift
+    # on a nightly job.
+    #
+    # It is also a lower bound, never an appointment. Scheduled workflows queue,
+    # and the runs previously set for 03:00 UTC actually began at 04:05, 04:08 and
+    # 04:17 UTC — a 65–77 minute delay, which is what made the nightly appear to
+    # run at ~06:15 Berlin. Expect this one to start nearer 04:00 Berlin than
+    # 03:00; :00 is the most contended slot on the platform. Move it to :23 or
+    # :37 if that delay ever matters.
+    - cron: '0 1 * * *'
   workflow_dispatch:
 
 # A second run against the same GitHub accounts would fight over shared state
