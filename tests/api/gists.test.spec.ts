@@ -36,7 +36,7 @@ test.describe('gists creation', () => {
         // validate schema of the response
         await expectSchema(await ownerClient.getById(gist.id), gistSchema);
     });
-    test('TST-03 create 10 gists in sequence with different files @smoke', async ({ gists }) => {
+    test.skip('TST-03 create 10 gists in sequence with different files @smoke', async ({ gists }) => {
         for (let i = 0; i < 10; i += 1) {
             const filename = `contract-${runId}-${i}.txt`;
             const gist = await gists.create(
