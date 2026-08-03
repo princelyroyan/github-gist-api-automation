@@ -19,8 +19,13 @@ export default defineConfig({
   // flaky test should be visible immediately.
   retries: process.env.CI ? 1 : 0,
 
-  // Capped to stay well inside GitHub's secondary rate limits on writes.
-  workers: process.env.CI ? 4 : 4,
+  // Capping workers alone does not bound the write *rate* — four workers with
+  // nothing between them and the API still emptied the whole suite's ~170 writes
+  // into 30 seconds, four times over GitHub's 80/min cap. The actual cap is
+  // enforced by src/utils/write-throttle.ts, which divides an account-wide
+  // budget between exactly this many workers. The number therefore lives in
+  // env.ts, where both files can read the same one.
+  workers: env.workers,
 
   reporter: [
     ['list'],
@@ -39,12 +44,22 @@ export default defineConfig({
           api_version: env.apiVersion,
           node: process.version,
           ci: process.env.CI ? 'true' : 'false',
+          // Two runs of the same suite at different write rates are not
+          // comparable on duration, and a throttled run is explained by this
+          // number more often than by anything in the test code.
+          workers: String(env.workers),
+          write_rate_per_min: String(env.writeRatePerMin),
         },
       },
     ],
   ],
 
-  timeout: 30_000,
+  // Generous, because a test's wall-clock is now mostly spent queueing for a
+  // write slot rather than waiting on the API. SCH-11 creates and then deletes
+  // 10 gists — 20 paced writes, over a minute of it deliberate waiting. The
+  // per-assertion timeout stays tight, so a genuinely hung request still fails
+  // fast; this ceiling only has to be above the worst legitimate queue.
+  timeout: 150_000,
   expect: { timeout: 5_000 },
 
   use: {

@@ -21,7 +21,7 @@ environment, and the strategy is shaped more by these constraints than by the fe
 | No staging environment | Tests run against production. They must be non-destructive to real data and self-cleaning. |
 | No database or log access | Black-box only. Every verification is response-based. |
 | Rate limits — 5000/hr authenticated, **60/hr anonymous per IP** | Request budget is a design input, not an afterthought. The anonymous limit decides *which persona each test uses*, not how often the suite runs — see finding #18. |
-| **Secondary limit on burst writes** | **The real cap on run frequency** — fires while the hourly counter still reads healthy, with no `retry-after`. Two back-to-back full runs trigger it. Workers capped at 4; space runs minutes apart. See findings #20. |
+| **Secondary limit on burst writes** — 80 content requests/min, 900 points/min, 500/hr | Fires while the hourly counter still reads healthy, with no `retry-after`. A full run makes ~170 writes, which unpaced is 4× the per-minute cap *within a single run* — so the write rate is paced in the client rather than by spacing runs apart. See findings #20 and **#23**. |
 | Shared global state (`/gists/public`) | Never assert on the contents of a global list; assert on structural invariants. |
 | Eventual consistency across resources | Poll with a deadline rather than sleeping a fixed interval. |
 | No control over releases | Contract drift detection matters more here than in a service we own. |
@@ -254,11 +254,12 @@ reachable; rate-limit budget confirmed.
 endpoints; no unexplained failures; flake rate under 2% over 10 consecutive nightly runs;
 every open observation triaged into one of the three buckets below.
 
-**A practical caveat on the flake-rate criterion**, learned by attempting it: consecutive
-runs cannot be run back to back. GitHub's secondary limit blocks content creation after
-roughly one full run, so ten runs means spacing them minutes apart — around an hour of wall
-clock. Nightly CI satisfies this naturally; a local attempt to "just run it ten times"
-produces a wall of 403s that looks like a broken suite. See findings #20.
+**A practical caveat on the flake-rate criterion**, learned by attempting it: a full run
+takes ~3 minutes, nearly all of it the deliberate pacing that keeps writes under GitHub's
+80/min secondary limit (findings #23). Ten runs is half an hour of wall clock at best, and
+the 500 content-requests-per-hour limit caps it at three runs an hour — so it is closer to
+three hours. Nightly CI satisfies the criterion naturally; a local attempt to "just run it
+ten times" back to back will exhaust the hourly write budget around run three.
 
 ## 10. Defect reporting
 

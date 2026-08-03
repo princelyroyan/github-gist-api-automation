@@ -385,6 +385,11 @@ worse than no test, because it reports confidence it hasn't earned.
 
 ## 20. The secondary rate limit is the real cap on run frequency — *our problem, not GitHub's* ✅
 
+> **Superseded in part by #23.** The two mechanisms described below are correctly
+> distinguished, but the conclusion — space runs apart, and in CI it is a non-issue — does
+> not hold. The suite exceeded the limit *inside* a single run, by 4×. Spacing was treating
+> a rate problem as a sequencing one.
+
 Running the suite four times back to back produced this:
 
 | Run | Result |
@@ -436,9 +441,10 @@ actually measures rather than implying a guarantee it cannot make.
   of 47 identical "fixture setup failed" errors that read like a broken framework.
 - The gist factory routes its failures through the same guard, so throttled setup is
   named correctly at the point it happens.
-- Leave a few minutes between full runs locally. In CI the *write* throttle is a non-issue
-  — PR, push and nightly runs are naturally spaced. The **anonymous read** budget is not,
-  because it is keyed to the runner's shared IP rather than to us; see #22.
+- ~~Leave a few minutes between full runs locally. In CI the *write* throttle is a
+  non-issue — PR, push and nightly runs are naturally spaced.~~ **Wrong on both counts; see
+  #23.** Writes are now paced inside the run instead. The **anonymous read** budget is a
+  separate problem, keyed to the runner's shared IP rather than to us; see #22.
 
 **The honest conclusion about stability:** four consecutive runs could not establish a
 flake rate, because the environment stops cooperating after the first. Demonstrating the
@@ -552,6 +558,82 @@ answer is not to tune the threshold — it is a runner with an IP of our own.
 you can plan against. #18 measured the suite's own consumption and reasoned from it, which
 is right for a token and wrong for an IP. Worth asking of any shared quota: *whose is it,
 and who else can spend it?*
+
+---
+
+## 23. Spacing runs was never the fix — the suite was over the limit *within* one run — *our problem, not GitHub's* ✅
+
+**This corrects #20.** That finding concluded "leave a few minutes between full runs", and
+that in CI the write throttle is a non-issue because PR, push and nightly runs are
+naturally spaced. Both halves are wrong. Two pushes to `main` 35 minutes apart on
+2026-08-03 both went red, the second one worse than the first:
+
+```
+Error: SECONDARY rate limit — GitHub has temporarily blocked content creation.
+This is a burst-write throttle: x-ratelimit-remaining is still 4617.
+```
+
+Alongside them, on the same run, a status code #20 never connected to the throttle:
+
+```
+409 {"message":"Gist cannot be updated."}
+```
+
+**Spacing cannot fix a rate that is exceeded inside a single run.** GitHub enforces the
+secondary limit over a rolling window, and one full run then measured:
+
+| | Per run | Elapsed | Effective rate | GitHub's cap |
+|---|---|---|---|---|
+| Content-generating requests | ~170 | ~32 s | **~320/min** | 80/min |
+| Points (write 5, read 1) | ~1090 | ~32 s | **~2000/min** | 900/min |
+
+Four times over one cap and twice over the other, *by itself*, with no neighbouring run
+involved. #20 measured "~40 gists in ~35 seconds" and read the survival of run 1 as the
+suite being within budget; it was over the limit the whole time and merely started each
+run with a fresh window. Adding SCH-11 (10 gists) and `gists.test.spec.ts` removed the
+last of the margin, which is why this surfaced when it did rather than earlier.
+
+**The 409 is the same throttle wearing a different status code.** A gist is a git
+repository, and GitHub rejects a `PATCH` that lands too close behind the previous write to
+it. REV-02, UPD-11 and SCH-03 hit 409s in the same run that produced the 403s, and were
+individually diagnosable as nothing at all — "Gist cannot be updated" reads like a product
+defect. Two failure modes, one cause.
+
+**What changed:**
+
+- `src/utils/write-throttle.ts` paces every content-generating request so the run stays
+  under the cap by construction. The budget (70/min, headroom under 80) is account-wide,
+  and each worker is a separate process that cannot see the others — so it is divided up
+  front, `1/workers` each. That makes the worker count load-bearing rather than cosmetic,
+  which is why it moved into `env.ts` where the config and the pacer read the same number.
+- Any request that still comes back throttled — 403 secondary, 429, or the 409 — is
+  retried with back-off in `BaseClient.send`, honouring `retry-after` when GitHub sends
+  one and backing off 5s/15s/45s when it does not, which for the secondary limit is
+  always. Specs never see this; what reaches `assertNotRateLimited` is a throttle that
+  survived the retries, and that is still reported loudly.
+- CI's `concurrency` group no longer keys on `github.ref`. It protects a pair of *accounts*
+  and there is one pair of those regardless of how many branches exist; keyed on the ref, a
+  PR run and a `main` run overlapped and put two runs' writes through one token.
+- The per-test timeout went from 30s to 150s. A test's wall-clock is now mostly time spent
+  queueing for a write slot — SCH-11 alone is 20 paced writes.
+
+**The cost, stated plainly:** a full run went from 32 seconds to 3 minutes. That is not
+overhead to be tuned away — it *is* the fix. 170 writes cannot be issued in under two
+minutes without breaking a documented limit, so any run faster than that was borrowing
+against the next one. The measured result is 89 passed, 0 throttled, ~57 writes/min and
+~360 points/min against caps of 80 and 900.
+
+**What still is not solved.** GitHub also caps content creation at **500/hour**. At ~170
+writes a run that is three runs an hour, and nothing here enforces it — the concurrency
+group serialises runs but does not ration them. A busy afternoon of pushes will still hit
+it. The honest options are fewer writes per run (SCH-11 and the skipped TST-03 are the
+same 10-gist test written twice, ~12% of the budget between them) or a third account; the
+suite currently relies on push frequency staying low.
+
+**The generalisable point:** "space the runs out" is what you conclude when you assume a
+run is within budget and the *sequence* is the problem. Nobody had divided the writes by
+the seconds. When a limit is a rate, measure the rate — a total and a duration were sitting
+in the CI log the whole time.
 
 ---
 

@@ -26,8 +26,19 @@ on:
 
 # A second run against the same GitHub accounts would fight over shared state
 # (starred lists, the user's gist list) and burn rate-limit budget twice.
+#
+# The group is deliberately NOT keyed on github.ref. The thing being protected is
+# a pair of GitHub *accounts*, and there is one pair of those no matter how many
+# branches exist — keying on the ref let a PR run and a main run overlap, which is
+# two runs' worth of writes against one token's per-minute budget. Serialise on
+# the workflow instead, and cancel the older run: with a live API the newest
+# commit is the only one whose result is still interesting.
+#
+# Note this does not bound *runs per hour*, and GitHub caps content creation at
+# 500/hr on top of the per-minute limit. One full run spends about 170 of that.
+# Three runs inside an hour is the ceiling; see docs/findings.md #23.
 concurrency:
-  group: api-tests-${{ github.ref }}
+  group: api-tests
   cancel-in-progress: true
 
 jobs:
