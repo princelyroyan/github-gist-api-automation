@@ -72,8 +72,19 @@ test.describe('Revisions and history', () => {
     const revision = await expectSchema(response, gistSchema);
     expect(revision.files['notes.txt'].content).toBe('version one');
 
-    const current = await ownerClient.getById(created.id);
-    expect((await current.json()).files['notes.txt'].content).toBe('version two');
+    // The same read-after-write lag REV-02 polls for, on the gist body rather
+    // than on /commits: a 200 from PATCH does not mean the next GET has caught
+    // up. Seen in CI on 2026-08-03, where the revision correctly returned the
+    // old content and the *current* read also still returned it — which reads
+    // like the update was lost, and is really just the read being stale. Only
+    // once the throttling in findings #23 was fixed did this become visible.
+    const currentContent = await eventually(
+      async () =>
+        (await (await ownerClient.getById(created.id)).json()).files['notes.txt'].content,
+      (content: string) => content === 'version two',
+      { timeoutMs: 10_000, intervalMs: 1_000 },
+    );
+    expect(currentContent).toBe('version two');
   });
 
   test('REV-04 change_status reflects the actual diff @P2', async ({ ownerClient, gists }) => {

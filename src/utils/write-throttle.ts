@@ -43,28 +43,38 @@ export function isWrite(method: string): boolean {
  */
 export const writeGapMs = Math.ceil((60_000 * env.workers) / env.writeRatePerMin);
 
+/** The gap for a single-process writer, which owns the whole budget. */
+export const soloWriteGapMs = Math.ceil(60_000 / env.writeRatePerMin);
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Writes are serialised through this chain so that two concurrent tests in the
-// same worker cannot both decide the gap has elapsed and fire together.
-let queue: Promise<unknown> = Promise.resolve();
-let previousWriteAt = 0;
-
 /**
- * Resolves when it is this caller's turn to write. The slot is claimed *before*
- * the request goes out, so the real spacing is the gap plus the request's own
- * latency — again erring towards being slower than the cap rather than faster.
+ * A pacer that admits one caller per `gapMs`.
+ *
+ * Callers are serialised through a promise chain rather than each checking a
+ * clock, so two concurrent tests in the same worker cannot both decide the gap
+ * has elapsed and fire together. The slot is claimed *before* the request goes
+ * out, so real spacing is the gap plus the request's own latency — erring
+ * towards slower than the cap rather than faster.
  */
-export function paceWrite(): Promise<void> {
-  const turn = queue.then(async () => {
-    const elapsed = Date.now() - previousWriteAt;
-    if (elapsed < writeGapMs) await sleep(writeGapMs - elapsed);
-    previousWriteAt = Date.now();
-  });
-  // Never let a rejection poison the chain for every subsequent write.
-  queue = turn.catch(() => undefined);
-  return turn;
+export function createWritePacer(gapMs: number): () => Promise<void> {
+  let queue: Promise<unknown> = Promise.resolve();
+  let previousWriteAt = 0;
+
+  return () => {
+    const turn = queue.then(async () => {
+      const elapsed = Date.now() - previousWriteAt;
+      if (elapsed < gapMs) await sleep(gapMs - elapsed);
+      previousWriteAt = Date.now();
+    });
+    // Never let a rejection poison the chain for every subsequent write.
+    queue = turn.catch(() => undefined);
+    return turn;
+  };
 }
+
+/** The suite's pacer: one worker's share of the account-wide budget. */
+export const paceWrite = createWritePacer(writeGapMs);
 
 /** The throttles worth retrying, each with a distinct signature. */
 export type ThrottleKind =

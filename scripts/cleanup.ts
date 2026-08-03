@@ -10,6 +10,7 @@
  *   npm run cleanup -- --apply --older-than 0
  */
 import { env } from '../src/config/env';
+import { createWritePacer, soloWriteGapMs } from '../src/utils/write-throttle';
 
 const args = process.argv.slice(2);
 const apply = args.includes('--apply');
@@ -18,6 +19,17 @@ const olderThanHours = Number(
 );
 
 const PREFIX = 'qa-auto';
+
+/**
+ * A DELETE counts against the same content-creation limit a POST does, and this
+ * script's whole job is a run of back-to-back DELETEs — in CI, immediately after
+ * a suite that has just spent the budget. Unpaced, sweeping up 30 orphans is a
+ * burst well over the 80/min cap, and the run it would block is the *next* one,
+ * which makes it a confusing failure to trace back to here. See findings #23.
+ *
+ * One process, so it gets the whole budget rather than a worker's share.
+ */
+const paceDelete = createWritePacer(soloWriteGapMs);
 
 type Gist = { id: string; description: string | null; created_at: string; html_url: string };
 
@@ -64,6 +76,7 @@ async function cleanupAccount(label: string, token: string): Promise<number> {
       console.log(`  would delete ${gist.id}  ${gist.description}`);
       continue;
     }
+    await paceDelete();
     const response = await githubFetch(token, `/gists/${gist.id}`, { method: 'DELETE' });
     if (response.status === 204) {
       deleted += 1;

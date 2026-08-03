@@ -14,8 +14,8 @@ limits by construction.
 ```bash
 npm install
 cp .env.example .env      # then fill in two tokens
-npm run test:smoke        # P0 only, ~10s
-npm test                  # everything, ~30s
+npm run test:smoke        # P0 only, ~1m
+npm test                  # everything, ~3m — mostly write pacing, see below
 npm run allure:serve      # results as an Allure report
 ```
 
@@ -41,7 +41,8 @@ src/
   models/                   request types + Zod response schemas
   builders/                 valid-by-default payloads with targeted overrides
   fixtures/api.fixtures.ts  personas, and the factory that guarantees cleanup
-  utils/                    unique naming, schema/status assertions, polling
+  utils/                    unique naming, schema/status assertions, polling,
+                            write pacing and throttle back-off
 tests/api/                  specs, one file per behaviour area
 scripts/cleanup.ts          removes leaked qa-auto-* gists
 postman/                    the exploration collection this suite grew out of
@@ -127,12 +128,21 @@ sends no `retry-after`, so nothing tells you it is coming or when it lifts:
     blocked from content creation.
 ```
 
-Four back-to-back runs triggered it: run 1 passed, runs 2–4 lost ~55 tests each to it
-while account A still had 4643 of 5000 requests available. **Leave a few minutes between
-full runs locally.** In CI this particular limit is a non-issue — PR, push, and nightly
-runs are naturally spaced. `assertNotRateLimited` names it explicitly so a throttled run
-cannot be mistaken for a broken suite. Full write-up in
-[`docs/findings.md`](docs/findings.md) #20.
+The caps are 80 content-generating requests per minute, 500 per hour, and 900 REST points
+per minute (a write costs 5 points, a read 1). A full run makes ~170 writes — which,
+issued as fast as four workers can, is **4× the per-minute cap inside a single run**. It
+was never a matter of spacing runs apart: CI went red on two pushes 35 minutes apart, and
+the same throttle also surfaces as `409 Gist cannot be updated` on a `PATCH` that lands too
+soon after the previous write.
+
+So the suite paces its own writes (`src/utils/write-throttle.ts`) to 70/min account-wide,
+divided between the workers, and retries with back-off anything that comes back throttled
+anyway. That is what makes a run take ~3 minutes rather than ~30 seconds; the 30-second
+version was borrowing against the next run. `assertNotRateLimited` still names any throttle
+that survives the retries, so it cannot be mistaken for a broken suite. Full write-up in
+[`docs/findings.md`](docs/findings.md) #20 and #23.
+
+What this does *not* solve: 500 writes/hour is ~3 full runs, and nothing rations them.
 
 The anonymous limit binds first, so that persona is reserved for the eight tests where
 being unauthenticated *is* the thing under test. Everything else — pagination, feed
@@ -156,7 +166,9 @@ you do not control is not a budget you can plan against.
 
 Other measures:
 
-- Workers capped at 4 rather than left unbounded (secondary limits punish burst writes).
+- Writes paced to a fixed rate, with the account-wide budget divided between the 4 workers
+  — capping workers alone bounds concurrency, not the request *rate*, which is what the
+  secondary limits actually measure.
 - Fixtures reused across assertions instead of a fresh gist per expectation.
 - Retries only in CI, and only once — a 4xx is never retried.
 - Rate-limit headers are asserted (NFR-01) rather than deliberately exhausted.

@@ -337,10 +337,19 @@ unrelated tests:
 | **REV-04** | same, read as `commits[0]` | reads the **creation** commit and reports the diff as wrong |
 | RD-07 | account B lists the owner's gists | a public gist created moments earlier is absent |
 | AUTH-08 / DEL-02 | anonymous `GET /gists/{id}` | 404 for a gist the owner can read |
+| **REV-03** | **owner `GET /gists/{id}` after a 200 from `PATCH`** | **returns the pre-update content** |
 
 All of them are intermittent, appear under parallel load, and vanish when the API is idle —
 which is why they survived a dozen green runs before showing themselves. Non-owners lag
 *more*, but nobody is exempt, including the writer.
+
+REV-03 is the clearest illustration of why this class of bug is expensive to read. It
+asserts that an old revision keeps the old content, and it failed reporting exactly that —
+`expected "version two", received "version one"` — on the *current* read. The assertion
+that fired was the control, not the guarantee under test. A stale read of an updated gist
+is indistinguishable from an update that was silently lost, until you notice which of the
+two reads failed. It also only became visible after the throttling in #23 was fixed: the
+same test had been failing on a 409 that masked it.
 
 **The mechanism is not confirmed, and the obvious explanation is wrong.** The natural
 suspect was the `private, max-age=60` cache header on these responses, but direct probing
@@ -370,7 +379,8 @@ and, worse, easy to forget on the next test someone writes. It costs one extra G
 gist, trivial against the 5000/hr authenticated budget.
 
 Where a specific operation lags independently of creation, the test polls: SCH-03 and
-REV-02 for the commits list, AUTH-08 for the anonymous read. AUTH-08 is bounded to three
+REV-02 for the commits list, REV-03 for the gist body after a `PATCH`, AUTH-08 for the
+anonymous read. AUTH-08 is bounded to three
 attempts rather than thirty, because every anonymous request spends from the 60/hr budget
 in #18.
 
