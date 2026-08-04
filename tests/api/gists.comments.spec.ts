@@ -1,4 +1,4 @@
-import { test, expect } from '../../src/fixtures/api.fixtures';
+import { test, expect, GistBuilder } from '../../src/fixtures/api.fixtures';
 import { commentListSchema, commentSchema, gistSchema } from '../../src/models/gist.schemas';
 import { expectApiError, expectSchema, expectStatus } from '../../src/utils/assertions';
 
@@ -50,11 +50,16 @@ test.describe('Gist comments', () => {
   }) => {
     // Public so account B can reach the gist at all — this isolates the comment
     // permission check from the gist visibility check.
-    const gist = await gists.create({
-      description: 'comment permissions',
-      public: true,
-      files: { 'notes.txt': { content: 'x' } },
-    });
+    //
+    // Built rather than hand-rolled: the literal it replaced carried the fixed
+    // description "comment permissions", and scripts/cleanup.ts finds orphans by
+    // matching the `qa-auto` prefix (cleanup.ts:66). A gist that leaks past
+    // teardown under that name is invisible to cleanup and untraceable to the
+    // run that made it — and teardown is likeliest to fail exactly when four
+    // workers are contending for write slots.
+    const gist = await gists.create(
+      GistBuilder.aGist().withPublic(true).withFile('notes.txt', 'x').build(),
+    );
     const comment = await (await ownerComments.create(gist.id, { body: 'mine' })).json();
 
     const response = await otherComments.update(gist.id, comment.id, { body: 'hijacked' });

@@ -1,6 +1,11 @@
 import { test, expect, GistBuilder } from '../../src/fixtures/api.fixtures';
 import { gistListSchema } from '../../src/models/gist.schemas';
-import { expectApiError, expectSchema, expectStatus } from '../../src/utils/assertions';
+import {
+  eventually,
+  expectApiError,
+  expectSchema,
+  expectStatus,
+} from '../../src/utils/assertions';
 
 /**
  * Star is a two-state machine (unstarred <-> starred) reached by three endpoints.
@@ -29,11 +34,26 @@ test.describe('Star lifecycle', () => {
   }) => {
     await expectStatus(await ownerClient.star(tempGist.id), 204);
 
-    const response = await ownerClient.listStarred({ per_page: 100 });
-    await expectStatus(response, 200);
+    // /gists/starred is account-wide state, so this deliberately asserts only
+    // that the test's own gist is present — never a count, never a position.
+    // Other workers star and unstar their own gists in the same account
+    // throughout the run.
+    //
+    // Polled for the same reason as RD-04: this is a list read immediately
+    // after a write, and the list representation settles behind the write that
+    // caused it (findings #19). The 204 from PUT .../star is not a promise that
+    // the starred list has caught up.
+    const starredIds = await eventually(
+      async () => {
+        const response = await ownerClient.listStarred({ per_page: 100 });
+        await expectStatus(response, 200);
+        return (await expectSchema(response, gistListSchema)).map((g) => g.id);
+      },
+      (ids) => ids.includes(tempGist.id),
+      { timeoutMs: 20_000, intervalMs: 2_000 },
+    );
 
-    const list = await expectSchema(response, gistListSchema);
-    expect(list.map((g) => g.id)).toContain(tempGist.id);
+    expect(starredIds).toContain(tempGist.id);
 
     await ownerClient.unstar(tempGist.id);
   });

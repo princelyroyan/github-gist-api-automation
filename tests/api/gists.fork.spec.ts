@@ -38,8 +38,16 @@ test.describe('Fork', () => {
     gists,
   }) => {
     const original = await gists.create(GistBuilder.aGist().withPublic(true).build());
-    const fork = await (await otherClient.fork(original.id)).json();
-    otherGists.track(fork.id);
+
+    // Registered off the raw response before anything is asserted or parsed, as
+    // FRK-01 does. The previous shape — parse, read `.id`, then track — leaks
+    // the fork if `.json()` throws, and turns a throttled or rejected fork into
+    // a confusing `undefined` id downstream rather than a named failure. Both
+    // become likelier at 4 workers, which is when a leak is hardest to trace.
+    const forkResponse = await otherClient.fork(original.id);
+    await trackIfCreated(forkResponse, otherGists);
+    await expectStatus(forkResponse, 201);
+    const fork = await forkResponse.json();
 
     // Fork propagation is eventually consistent — poll rather than sleep.
     const forks = await eventually(
@@ -74,8 +82,11 @@ test.describe('Fork', () => {
     const original = await gists.create(
       GistBuilder.aGist().withPublic(true).withFile('a.txt', 'original content').build(),
     );
-    const fork = await (await otherClient.fork(original.id)).json();
-    otherGists.track(fork.id);
+    // Tracked before asserting, for the same reason as FRK-02.
+    const forkResponse = await otherClient.fork(original.id);
+    await trackIfCreated(forkResponse, otherGists);
+    await expectStatus(forkResponse, 201);
+    const fork = await forkResponse.json();
 
     await expectStatus(
       await otherClient.update(fork.id, { files: { 'a.txt': { content: 'fork content' } } }),

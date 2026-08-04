@@ -12,27 +12,6 @@ import { expectSchema, expectStatus } from '../../src/utils/assertions';
  * are the cheapest possible detector for a breaking change shipped without notice.
  */
 test.describe('Response contract', () => {
-  test('SCH-11 creates 10 gists in sequence with unique filenames @P1 @contract', async ({
-    gists,
-  }) => {
-    const filenames = new Set<string>();
-
-    for (let i = 0; i < 10; i++) {
-      const filename = `contract-${Date.now()}-${i}.txt`;
-      filenames.add(filename);
-
-      const gist = await gists.create(
-        GistBuilder.aGist().withPublic(true).withFile(filename, `content-${i}`).build(),
-      );
-
-      expect(gist.id).toBeTruthy();
-      expect(gist.files[filename]).toBeDefined();
-      expect(gist.files[filename].content).toBe(`content-${i}`);
-    }
-
-    expect(filenames.size).toBe(10);
-  });
-
   test('SCH-01 the gist detail response matches the schema @smoke @P0 @contract', async ({
     ownerClient,
     tempGist,

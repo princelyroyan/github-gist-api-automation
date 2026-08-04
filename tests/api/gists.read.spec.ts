@@ -57,11 +57,27 @@ test.describe('GET /gists — read', () => {
   }) => {
     const secret = await gists.create(GistBuilder.aGist().secret().build());
 
-    const response = await ownerClient.list({ per_page: 100 });
-    await expectStatus(response, 200);
+    // The factory settles the *detail* representation — GET /gists/{id} and
+    // /commits — and nothing else. The list representation settles separately
+    // and lags it under parallel load, which is the same eventual consistency
+    // RD-07 polls for on the non-owner listing and findings #19 documents. The
+    // owner is not exempt: #19's own correction is that read-after-write lag
+    // hits the writer too.
+    //
+    // The assertion is unchanged; only its timing is. A list that never catches
+    // up inside the deadline still fails, so this removes a race without
+    // removing any coverage.
+    const listedIds = await eventually(
+      async () => {
+        const response = await ownerClient.list({ per_page: 100 });
+        await expectStatus(response, 200);
+        return (await expectSchema(response, gistListSchema)).map((g) => g.id);
+      },
+      (ids) => ids.includes(secret.id),
+      { timeoutMs: 20_000, intervalMs: 2_000 },
+    );
 
-    const list = await expectSchema(response, gistListSchema);
-    expect(list.map((g) => g.id)).toContain(secret.id);
+    expect(listedIds).toContain(secret.id);
   });
 
   test('RD-05 the anonymous list is a different resource entirely @P1', async ({
@@ -177,9 +193,13 @@ test.describe('GET /gists — read', () => {
       GistBuilder.aGist().withFile('notes.txt', 'detail only').build(),
     );
 
-    const list = await expectSchema(
-      await ownerClient.list({ per_page: 100 }),
-      gistListSchema,
+    // Same list-freshness poll as RD-04. The "missing from the authenticated
+    // list" message below was written for a failure that is really the list
+    // representation lagging the write; polling makes it mean what it says.
+    const list = await eventually(
+      async () => expectSchema(await ownerClient.list({ per_page: 100 }), gistListSchema),
+      (found) => found.some((g) => g.id === created.id),
+      { timeoutMs: 20_000, intervalMs: 2_000 },
     );
     const listed = list.find((g) => g.id === created.id);
     expect(listed, 'newly created gist missing from the authenticated list').toBeDefined();

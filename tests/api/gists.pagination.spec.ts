@@ -1,6 +1,11 @@
 import { test, expect } from '../../src/fixtures/api.fixtures';
 import { gistListSchema } from '../../src/models/gist.schemas';
-import { expectApiError, expectSchema, expectStatus } from '../../src/utils/assertions';
+import {
+  eventually,
+  expectApiError,
+  expectSchema,
+  expectStatus,
+} from '../../src/utils/assertions';
 
 /**
  * Pagination is asserted against the public feed, which is shared global state.
@@ -113,10 +118,25 @@ test.describe('Pagination and filtering', () => {
     const cutoff = new Date(Date.now() - 60_000).toISOString();
     const fresh = await gists.create();
 
-    const response = await ownerClient.list({ since: cutoff, per_page: 100 });
-    await expectStatus(response, 200);
+    // Two assertions with different exposure to parallelism, so they are set up
+    // differently:
+    //
+    //  - "the filter excludes nothing older than the cutoff" is an invariant. It
+    //    holds no matter what the other workers are writing, because a
+    //    concurrent write can only make a gist *newer*.
+    //  - "my own gist is in the result" is a read of the list representation
+    //    straight after a write, which lags under parallel load (findings #19,
+    //    and RD-04/RD-07 for the same shape). Polled, not assumed.
+    const list = await eventually(
+      async () => {
+        const response = await ownerClient.list({ since: cutoff, per_page: 100 });
+        await expectStatus(response, 200);
+        return expectSchema(response, gistListSchema);
+      },
+      (found) => found.some((g) => g.id === fresh.id),
+      { timeoutMs: 20_000, intervalMs: 2_000 },
+    );
 
-    const list = await expectSchema(response, gistListSchema);
     expect(list.map((g) => g.id)).toContain(fresh.id);
     expect(list.every((g) => Date.parse(g.updated_at) >= Date.parse(cutoff))).toBe(true);
   });

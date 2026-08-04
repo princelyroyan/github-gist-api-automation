@@ -55,10 +55,15 @@ export default defineConfig({
   ],
 
   // Generous, because a test's wall-clock is now mostly spent queueing for a
-  // write slot rather than waiting on the API. SCH-11 creates and then deletes
-  // 10 gists — 20 paced writes, over a minute of it deliberate waiting. The
+  // write slot rather than waiting on the API. The worst legitimate queue is
+  // PAG-07, which provisions four gists and then re-reads pages until the
+  // collection stops moving under it — measured at 26s across 4 workers. The
   // per-assertion timeout stays tight, so a genuinely hung request still fails
   // fast; this ceiling only has to be above the worst legitimate queue.
+  //
+  // (This previously cited SCH-11, a 10-gist sequential create that has since
+  // been removed. Keeping the headroom regardless: the pacer, not any one test,
+  // is what makes a test's duration unpredictable — see findings #23.)
   timeout: 150_000,
   expect: { timeout: 5_000 },
 

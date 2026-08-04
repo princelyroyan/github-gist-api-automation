@@ -384,6 +384,30 @@ anonymous read. AUTH-08 is bounded to three
 attempts rather than thirty, because every anonymous request spends from the 60/hr budget
 in #18.
 
+**The factory settles the detail representation, and the *list* representation is a third
+thing that settles separately.** `gists.create()` polls `GET /gists/{id}` and `/commits`.
+It says nothing about when the gist appears in `GET /gists`, `/gists/starred` or
+`/users/{u}/gists`, and the fixture cannot know — those are different resources with their
+own lag. RD-07 was written as a one-off for the *non-owner* listing, but nothing in the
+mechanism is about the caller, and this finding's own headline correction is that the
+writer is not exempt either. Four tests asserted on a list read immediately after the
+write that should have populated it, and now poll instead:
+
+| Test | List read straight after a write |
+|---|---|
+| RD-04 | `GET /gists` after creating a secret gist |
+| RD-09 | `GET /gists` after creating a gist |
+| PAG-09 | `GET /gists?since=` after creating a gist |
+| STR-04 | `GET /gists/starred` after `PUT /gists/{id}/star` |
+
+**Recorded as analysis, not observation** — the distinction matters, because every other
+row in the table above earned its place by failing. These four did not fail; they are the
+same shape as the ones that did, on the one representation nothing settles. The polls are
+cheap when the list is already fresh (2–3s, first or second attempt on the run that
+validated them) and the assertions after them are unchanged, so a list that never catches
+up still fails the test. STR-04 is also the only one of the four reading account-wide
+state, which is why it asserts presence of its own gist and never a count.
+
 There is a subtler trap here that polling also fixes. RD-07's real assertion is that
 account B *cannot* see the owner's secret gist. Against a stale listing that assertion
 passes for the wrong reason — the list is missing every recent gist, secret and public

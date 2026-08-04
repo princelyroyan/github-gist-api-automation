@@ -1,6 +1,7 @@
 import { test, expect, GistBuilder } from '../../src/fixtures/api.fixtures';
 import { gistSchema } from '../../src/models/gist.schemas';
 import { eventually, expectApiError, expectSchema, expectStatus } from '../../src/utils/assertions';
+import { uniqueDescription } from '../../src/utils/unique';
 
 /**
  * PATCH is the most complex logic in the API and the one place where a
@@ -27,11 +28,19 @@ test.describe('PATCH /gists/{id} — update semantics', () => {
       GistBuilder.aGist().withFile('notes.txt', 'unchanged').build(),
     );
 
-    const response = await ownerClient.update(created.id, { description: 'new description' });
+    // The new description is generated, not the literal "new description", so
+    // the gist stays greppable as `qa-auto-*` after the PATCH. This test renames
+    // a tracked gist, and scripts/cleanup.ts finds orphans by that prefix
+    // (cleanup.ts:66) — a fixed literal here would make anything that leaks past
+    // teardown untraceable. What is asserted is unchanged: the value sent comes
+    // back.
+    const renamed = uniqueDescription('updated');
+
+    const response = await ownerClient.update(created.id, { description: renamed });
     await expectStatus(response, 200);
 
     const gist = await expectSchema(response, gistSchema);
-    expect(gist.description).toBe('new description');
+    expect(gist.description).toBe(renamed);
     expect(gist.files['notes.txt'].content).toBe('unchanged');
   });
 
