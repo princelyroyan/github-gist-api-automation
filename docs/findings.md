@@ -671,6 +671,60 @@ in the CI log the whole time.
 
 ---
 
+## 24. Read-after-write lag on `GET /gists/{id}` after `PATCH` — *design observation* ✅
+
+**Finding #19 established that a 201 from `POST /gists` does not mean the gist is usable
+yet.** The factory polls until both the detail view and the creation commit are readable.
+What #19 did *not* cover is that the same lag applies to *subsequent writes* — a 200 from
+`PATCH` does not mean the next `GET /gists/{id}` will reflect the change. This is the same
+cache-invalidation window on a different event type.
+
+**Evidence from CI (2026-08-03).** Three consecutive runs of the full regression suite
+failed. In each case a single test — REV-03 (`an old revision still returns the old
+content`) — was the only failure. The test:
+
+1. Creates a gist with `notes.txt: "version one"`.
+2. Updates it to `"version two"` via `PATCH` (receives `200`).
+3. Reads the pinned old revision (the `GET /gists/{id}/{sha}` endpoint) and asserts the
+   content is `"version one"` — correct and immutable, this always passed.
+4. Reads the *current* gist (`GET /gists/{id}`) and asserted the content is `"version two"`.
+   This is the step that failed.
+
+The CI log recorded:
+
+```
+Expected: "version two"
+Received: "version one"
+```
+
+The update was not lost. The `PATCH` returned `200` and the content later resolved to
+`"version two"`. The `GET` was simply ahead of the propagation window — it returned the
+stale version, exactly as finding #19 documents for post-creation reads.
+
+**Why it surfaced when it did.** Before finding #23's write throttle, the suite ran in ~35
+seconds and the extra elapsed time between the `PATCH` and the `GET` was enough for the
+propagation to complete. Slowing the suite down to ~3 minutes changed the inter-test
+pacing but also changed how tightly two operations within the *same* test are packed:
+the paced throttle queues writes, but the `GET` that follows a `PATCH` is a read and
+goes straight through — there is no longer a queue-wait between the two. Ironically, the
+fix for #23 *exposed* this failure mode on this particular test.
+
+**What changed.** The immediate `GET` was replaced with `eventually`, polling until the
+content matches `"version two"` (timeout 10 s, interval 1 s). This matches the pattern
+used in REV-02 (polling for commits) and RD-07 (polling for list inclusion). The
+pinned-revision assertion on the old SHA was left as a direct read — historical commits
+are immutable and do not need polling.
+
+**The generalisable rule.** Any assertion on the *result* of a write — whether the write
+is a `POST`, `PATCH`, star, delete, or comment — must account for the propagation window.
+The factory handles creation; `eventually` is the tool for everything else. Wrapping a
+read in `eventually` has no cost when the propagation is fast, and prevents false failures
+when it is not. The pattern in REV-02, REV-03, RD-04, RD-07, RD-09, PAG-09, STR-04 is
+the exhaustive list in the current suite; any new test that reads back a write should
+default to `eventually` unless there is a documented reason to trust the read is immediate.
+
+---
+
 ## UI ↔ API traceability
 
 | UI action | API equivalent | Gap |
