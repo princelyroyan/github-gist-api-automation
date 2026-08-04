@@ -167,7 +167,7 @@ in `eventually` and keep the assertion exactly as it was. `RD-04`, `RD-09`, `PAG
 
 - `docs/test-strategy.md` — risk analysis, constraints, personas, exit criteria
 - `docs/test-cases.md` — 115 cases identified, 92 automated by 89 tests, with steps and reasons for the rest
-- `docs/findings.md` — 22 findings; #12–#22 were discovered by *running* the suite
+- `docs/findings.md` — 24 findings; #12–#24 were discovered by *running* the suite
 - `gist-qa-case-study-plan.md` — local-only prep notes, excluded via `.git/info/exclude`
 
 When behaviour changes, update `docs/test-cases.md` (expected values) and `docs/findings.md`
